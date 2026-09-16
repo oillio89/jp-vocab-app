@@ -173,7 +173,16 @@
     white-space: nowrap;
   }
 
-  .jp-quizmode-row { display: flex; gap: 8px; margin-bottom: 14px; }
+  .jp-quizmode-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .jp-quiz-meaning-prompt { font-family: var(--thai); font-size: 20px; line-height: 1.6; text-align: center; color: var(--ink); margin: 12px 0 22px; }
+  .jp-typed-input { width: 100%; font-family: var(--thai); font-size: 15px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 5px; background: #fff; color: var(--ink); margin-bottom: 10px; }
+  .jp-typed-input:focus { outline: 2px solid var(--indigo-soft); outline-offset: 1px; }
+  .jp-typed-input.correct { border-color: var(--indigo); background: #E4EBF0; }
+  .jp-typed-input.incorrect { border-color: var(--seal); background: #F5E4E1; }
+  .jp-typed-feedback { font-size: 14px; margin-bottom: 12px; }
+  .jp-typed-feedback.correct { color: var(--indigo); }
+  .jp-typed-feedback.incorrect { color: var(--seal); }
+  .jp-typed-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .jp-quizmode-btn { font-family: var(--thai); font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border); background: var(--paper); color: var(--ink-soft); cursor: pointer; }
   .jp-quizmode-btn.active { background: var(--indigo); border-color: var(--indigo); color: var(--paper-3); }
   .jp-quizmode-btn:not(.active):hover { border-color: var(--indigo-soft); color: var(--indigo); }
@@ -353,6 +362,15 @@
         isGroupQuiz: true
       }));
     }
+    if (state.quizMode === 'typed') {
+      const pool = shuffle(getFilteredVocab());
+      const count = Math.min(10, pool.length);
+      return pool.slice(0, count).map(v => ({
+        id: v.id, meaning: v.meaning,
+        correct: v.word,
+        isTyped: true
+      }));
+    }
     const pool = shuffle(getFilteredVocab());
     const count = Math.min(10, pool.length);
     const chosen = pool.slice(0, count);
@@ -370,11 +388,16 @@
         state.quiz = { questions: [], index: 0, score: 0, selected: null, finished: false, tooFew: true };
         return;
       }
+    } else if (state.quizMode === 'typed') {
+      if (getFilteredVocab().length === 0) {
+        state.quiz = { questions: [], index: 0, score: 0, selected: null, finished: false, tooFew: true };
+        return;
+      }
     } else if (state.vocab.length < 2 || getFilteredVocab().length === 0) {
       state.quiz = { questions: [], index: 0, score: 0, selected: null, finished: false, tooFew: true };
       return;
     }
-    state.quiz = { questions: buildQuiz(), index: 0, score: 0, selected: null, finished: false, tooFew: false };
+    state.quiz = { questions: buildQuiz(), index: 0, score: 0, selected: null, typedCorrect: null, finished: false, tooFew: false };
   }
 
   function setQuizMode(mode) {
@@ -387,6 +410,37 @@
     if (state.quiz.selected !== null) return;
     state.quiz.selected = opt;
     if (opt === state.quiz.questions[state.quiz.index].correct) state.quiz.score++;
+    render();
+  }
+
+  function normalizeAnswer(s) {
+    return String(s || '').trim().replace(/\*+$/, '');
+  }
+
+  function isTypedAnswerCorrect(input, correctWord) {
+    const norm = normalizeAnswer(input);
+    if (!norm) return false;
+    return norm === normalizeAnswer(correctWord);
+  }
+
+  function submitTypedAnswer() {
+    const q = state.quiz;
+    if (q.selected !== null) return;
+    const el = document.getElementById('jp-typed-input');
+    if (!el) return;
+    const val = el.value.trim();
+    if (!val) return;
+    q.selected = val;
+    q.typedCorrect = isTypedAnswerCorrect(val, q.questions[q.index].correct);
+    if (q.typedCorrect) q.score++;
+    render();
+  }
+
+  function revealTypedAnswer() {
+    const q = state.quiz;
+    if (q.selected !== null) return;
+    q.selected = '';
+    q.typedCorrect = false;
     render();
   }
 
@@ -631,6 +685,7 @@
     const modeToggle = `
       <div class="jp-quizmode-row">
         <button type="button" class="jp-quizmode-btn ${state.quizMode === 'meaning' ? 'active' : ''}" data-action="set-quiz-mode" data-mode="meaning">ทดสอบความหมาย</button>
+        <button type="button" class="jp-quizmode-btn ${state.quizMode === 'typed' ? 'active' : ''}" data-action="set-quiz-mode" data-mode="typed">พิมพ์คำตอบ</button>
         <button type="button" class="jp-quizmode-btn ${state.quizMode === 'group' ? 'active' : ''}" data-action="set-quiz-mode" data-mode="group">ทดสอบกลุ่มคำกริยา</button>
       </div>
     `;
@@ -660,6 +715,35 @@
       return;
     }
     const question = q.questions[q.index];
+
+    if (question.isTyped) {
+      const answered = q.selected !== null;
+      const inputCls = !answered ? '' : (q.typedCorrect ? 'correct' : 'incorrect');
+      panel.innerHTML = `
+        ${modeToggle}
+        ${renderFilterRow(showGroupFilter)}
+        <div class="jp-quiz-progress">ข้อ ${q.index + 1} / ${q.questions.length} · คะแนน ${q.score}</div>
+        <div class="jp-quiz-meaning-prompt">${esc(question.meaning)}</div>
+        <input type="text" id="jp-typed-input" class="jp-typed-input ${inputCls}" placeholder="พิมพ์คำศัพท์ (ฮิรางานะ/คาตากานะ)..." ${answered ? 'disabled' : ''} value="${answered ? esc(q.selected) : ''}" />
+        ${answered ? `
+          <div class="jp-typed-feedback ${q.typedCorrect ? 'correct' : 'incorrect'}">
+            ${q.typedCorrect ? '✓ ถูกต้อง!' : `✗ ไม่ถูกต้อง — เฉลย: ${esc(question.correct)}`}
+          </div>
+          <div class="jp-typed-actions">
+            <button class="jp-btn" data-action="next-question">${q.index + 1 >= q.questions.length ? 'ดูผลคะแนน' : 'ข้อถัดไป'}</button>
+          </div>
+        ` : `
+          <div class="jp-typed-actions">
+            <button class="jp-btn" data-action="submit-typed">ตรวจคำตอบ</button>
+            <button class="jp-btn secondary" data-action="reveal-typed">ไม่รู้ ดูเฉลย</button>
+          </div>
+        `}
+      `;
+      const inputEl = document.getElementById('jp-typed-input');
+      if (inputEl && !answered) inputEl.focus();
+      return;
+    }
+
     const optionLabel = (opt) => question.isGroupQuiz ? ('กลุ่ม ' + opt) : opt;
     panel.innerHTML = `
       ${modeToggle}
@@ -694,6 +778,8 @@
       case 'mark-dontknow': e.stopPropagation(); markCard(false); break;
       case 'restart-review': restartReview(); break;
       case 'select-option': selectOption(btn.dataset.opt); break;
+      case 'submit-typed': submitTypedAnswer(); break;
+      case 'reveal-typed': revealTypedAnswer(); break;
       case 'next-question': nextQuestion(); break;
       case 'restart-quiz': restartQuiz(); break;
       case 'set-quiz-mode': setQuizMode(btn.dataset.mode); break;
@@ -736,6 +822,13 @@
     }
   }
 
+  function handleAppKeydown(e) {
+    if (e.target.id === 'jp-typed-input' && e.key === 'Enter') {
+      e.preventDefault();
+      submitTypedAnswer();
+    }
+  }
+
   window.addEventListener('error', function(ev) {
     const banner = document.createElement('div');
     banner.style.cssText = 'background:#F5E4E1;color:#B33A3A;padding:10px 16px;font-size:12px;font-family:sans-serif;border-bottom:1px solid #B33A3A;';
@@ -746,6 +839,7 @@
   root.addEventListener('click', handleAppClick);
   root.addEventListener('change', handleAppChange);
   root.addEventListener('input', handleAppInput);
+  root.addEventListener('keydown', handleAppKeydown);
   root.addEventListener('compositionstart', handleAppCompositionStart);
   root.addEventListener('compositionend', handleAppCompositionEnd);
 
