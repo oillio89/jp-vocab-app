@@ -414,7 +414,10 @@
   }
 
   function normalizeAnswer(s) {
-    return String(s || '').trim().replace(/\*+$/, '');
+    return String(s || '')
+      .replace(/[,.;:!?'"`*~\-_/\\()\[\]{}<>「」『』（）〔〕【】〈〉《》、。・！？：；＝＋～]/g, '')
+      .replace(/[\s\u3000]+/g, '')
+      .toLowerCase();
   }
 
   function isTypedAnswerCorrect(input, correctWord) {
